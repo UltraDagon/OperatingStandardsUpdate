@@ -6,9 +6,15 @@ ID of Google Document you are writing to (just double click the red text and ctr
 var docID = "";
 
 /*
-ID of Google Spreadsheet you want updated (just double click the red text and ctrl+v the id):
+ID of Google Spreadsheet you want updated:
 */
 var sheetID = "";
+
+/*
+[OPTIONAL] ID of Google Drive folder you want the copy sheet and doc to go into:
+Otherwise it will go into your main Google Drive folder.
+*/
+var folderID = "";
 
 
 // Do not touch beyond this line
@@ -18,6 +24,7 @@ function main() {
   var docLines = DocumentApp.openById(docID).getBody().getParagraphs();
   
   var shortTimeString = "";
+  var yearString = "";
   var bonusStandardsMap = new Map(); // Key:Value format: "Name":[amount,[reasons]]
   var mode = '';
 
@@ -27,7 +34,7 @@ function main() {
     let longTimeMatch = /(.*) ([0-3]?[0-9])...?, ([0-9]{4})/.exec(line); // Finds if a line is formatted in the form of "January 1st, 2012"
     if (longTimeMatch && !shortTimeString) { // If the line is matched and the shortTimeString has not already been set
       shortTimeString = shortenToTimeString(longTimeMatch);
-      //console.log(shortTimeString);
+      yearString = longTimeMatch[3];
     }
     
     // Enter fines mode
@@ -45,7 +52,7 @@ function main() {
     { readBonusStandards(bonusStandardsMap, line); }
   } // End scan of doc
 
-  updateCopySheet(bonusStandardsMap); // (TODO: NEEDS TO CREATE NEW SHEET) Creates a new sheet for this minutes with all of the info on it
+  createCopySheet(bonusStandardsMap, shortTimeString + "/" + yearString); //Creates a new sheet for this minutes with all of the info on it
   updateLiveSheet(bonusStandardsMap, shortTimeString); // Updates the live sheet for this minutes and removes entries from bonusStandardsMap
   
   printUnaddedEntries(bonusStandardsMap); // Notifies operator via console of unadded keys and values.
@@ -100,12 +107,12 @@ function readBonusStandards(bonusStandardsMap, line) {
   }
 }
 
-function updateCopySheet(bonusStandardsMap) {
-  let spreadsheet = SpreadsheetApp.openById(sheetID);
-  let sheetActive = spreadsheet.getSheetByName("Sheet1");
+function createCopySheet(bonusStandardsMap, shortTimeString) {
+  let spreadsheet = SpreadsheetApp.create('Copy Sheet ' + shortTimeString);
+  let sheetActive = spreadsheet.getActiveSheet();
 
   // Clear sheet
-  sheetActive.getRange(1, 1, 99, 26).setValue(""); // Sheets starts at 1,1 instead of 0,0 like normal, also in format of y, x
+  // sheetActive.getRange(1, 1, 99, 26).setValue(""); // Sheets starts at 1,1 instead of 0,0 like normal, also in format of y, x
   // Write to sheet
   sheetActive.getRange(1, 1).setValue("Names");
   sheetActive.getRange(1, 2).setValue("Bonus Standards");
@@ -135,6 +142,18 @@ function updateCopySheet(bonusStandardsMap) {
   for (let c = 1; c <= maxColIndex; c++) { // Resize all columns to match content
     spreadsheet.autoResizeColumn(c);
     spreadsheet.setColumnWidth(c, spreadsheet.getColumnWidth(c) + 4); // Matches default padding on the left to be on the right
+  }
+  // See if folder is given/available
+  var folder;
+  try {
+    folder = DriveApp.getFolderById(folderID);
+  } catch(e) {}
+
+  if (folder) {
+    // Move Copy Sheet to operating standards folder
+    let file = DriveApp.getFileById(spreadsheet.getId());
+    
+    file.moveTo(folder);
   }
 }
 
