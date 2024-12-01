@@ -11,6 +11,11 @@ ID of Google Spreadsheet you want updated:
 var sheetID = "";
 
 /*
+Reset Live Doc back to Template Doc after running? (BUGGY ATM, FALSE IS RECOMMENDED)
+*/
+var resetLiveDocToTemplate = false;
+
+/*
 [OPTIONAL] ID of Google Drive folder you want the copy sheet and doc to go into:
 Otherwise it will go into your main Google Drive folder.
 */
@@ -19,6 +24,7 @@ var folderID = "";
 
 // Do not touch beyond this line
 
+var templateID = "";
 
 function main() {
   var docLines = DocumentApp.openById(docID).getBody().getParagraphs();
@@ -52,10 +58,15 @@ function main() {
     { readBonusStandards(bonusStandardsMap, line); }
   } // End scan of doc
 
+  createCopyDoc(shortTimeString + "/" + yearString);
   createCopySheet(bonusStandardsMap, shortTimeString + "/" + yearString); //Creates a new sheet for this minutes with all of the info on it
   updateLiveSheet(bonusStandardsMap, shortTimeString); // Updates the live sheet for this minutes and removes entries from bonusStandardsMap
   
   printUnaddedEntries(bonusStandardsMap); // Notifies operator via console of unadded keys and values.
+
+  if (resetLiveDocToTemplate) {
+    resetLiveDoc(); // Reset live doc to match template
+  }
 
   return;
 }
@@ -105,6 +116,26 @@ function readBonusStandards(bonusStandardsMap, line) {
 
     bonusStandardsMap.set(members[m],[oldAmount,oldReasons]);
   }
+}
+
+function createCopyDoc(shortTimeString) {
+  // Copy doc and save id
+  let copyDocID = DriveApp.getFileById(docID).makeCopy('Copy Doc ' + shortTimeString).getId();
+
+  // See if folder is given/available
+  var folder;
+  try {
+    folder = DriveApp.getFolderById(folderID);
+  } catch(e) {}
+
+  if (folder) {
+    // Move Copy Doc to operating standards folder
+    let file = DriveApp.getFileById(copyDocID);
+    
+    file.moveTo(folder);
+  }
+
+  DocumentApp.openById(copyDocID).getHeader().setText(""); // Clear header after copying
 }
 
 function createCopySheet(bonusStandardsMap, shortTimeString) {
@@ -200,6 +231,42 @@ function printUnaddedEntries(bonusStandardsMap, copySheetID) {
   
   // Highlight all missing entries on the copy spreadsheet
   
+}
+
+//Source: https://stackoverflow.com/questions/71609753/copying-a-section-from-google-docs-to-another-doc-using-apps-script
+function resetLiveDoc() {
+  //TODO: copy over image that's supposed to be there, also fix list numbers not copying over
+  const template = DocumentApp.openById(templateID).getBody();
+  const liveDoc = DocumentApp.openById(docID).getBody();
+  
+  // Make live doc blank
+  liveDoc.setText("");
+
+  //Copy headers
+  DocumentApp.openById(docID).getHeader().setText(""); // Clear header before copying
+  let osuLink = DocumentApp.openById(templateID).getHeader().getChild(0).copy(); // Get operating standards update link (this page) from the template
+  DocumentApp.openById(docID).getHeader().insertParagraph(0,osuLink); // Set operating standards update link to be the header of live doc
+
+  let index = 0;
+  let el, type; // Element & type
+  for (let i = 0; i < template.getNumChildren(); i++){
+    el = template.getChild(i);
+    type = el.getType();
+    switch (type){
+      case DocumentApp.ElementType.PARAGRAPH:
+        liveDoc.insertParagraph(index,el.copy());
+        index++;
+        break;
+      case DocumentApp.ElementType.LIST_ITEM:
+        liveDoc.insertListItem(index,el.copy());
+        index++;
+        break;
+      case DocumentApp.ElementType.TABLE:
+        liveDoc.insertTable(index,el.copy());
+        index++;
+        break;
+    }
+  }
 }
 
 /*function onInstall(e) {
