@@ -1,6 +1,11 @@
 // Click the Run button ^^^
 
 /*
+Reset Live Doc to a template version after running?
+*/
+var resetLiveDocToTemplate = false;
+
+/*
 ID of Google Document you are writing to (just double click the red text and ctrl+v the id):
 */
 var docID = "";
@@ -11,20 +16,17 @@ ID of Google Spreadsheet you want updated:
 var sheetID = "";
 
 /*
-Reset Live Doc back to Template Doc after running? (BUGGY ATM, FALSE IS RECOMMENDED)
-*/
-var resetLiveDocToTemplate = false;
-
-/*
 [OPTIONAL] ID of Google Drive folder you want the copy sheet and doc to go into:
 Otherwise it will go into your main Google Drive folder.
 */
 var folderID = "";
 
+/*
+Create copies of the current doc and spreadsheet information?
+*/
+var createCopies = false;
 
 // Do not touch beyond this line
-
-var templateID = "";
 
 function main() {
   var docLines = DocumentApp.openById(docID).getBody().getParagraphs();
@@ -42,30 +44,35 @@ function main() {
       shortTimeString = shortenToTimeString(longTimeMatch);
       yearString = longTimeMatch[3];
     }
-    
-    // Enter fines mode
 
-    // Enter demerits mode
+    // Enter fines mode (TBD)
 
-    if (line == ("Bonus Standards"))// Enter bonus standards mode
+    // Enter demerits mode (TBD)
+
+    if (/Bonus Standards.*/.exec(line) && mode == '') // Enter bonus standards mode
     { mode = 'B'; continue; }
 
-    if (docLines[i].getIndentStart() == 36)// Reset mode // This (36) MIGHT be changed in the future, would be nice if it was made dynamic
+    if (docLines[i].getIndentStart() == 36) // Reset mode // This (36) MIGHT be changed in the future, would be nice if it was made dynamic
     { mode = ''; }
     
 
     if (mode == 'B')
-    { readBonusStandards(bonusStandardsMap, line); }
+    { readBonusStandards(bonusStandardsMap, docLines, i); }
   } // End scan of doc
 
-  createCopyDoc(shortTimeString + "/" + yearString);
-  createCopySheet(bonusStandardsMap, shortTimeString + "/" + yearString); //Creates a new sheet for this minutes with all of the info on it
+  console.log("Updating Operating Standards information for " + shortTimeString + "...");
+
+  if (createCopies) {
+    createCopyDoc(shortTimeString + "/" + yearString);
+    createCopySheet(bonusStandardsMap, shortTimeString + "/" + yearString); // Creates a new sheet for this minutes with all of the info on it
+  }
+
   updateLiveSheet(bonusStandardsMap, shortTimeString); // Updates the live sheet for this minutes and removes entries from bonusStandardsMap
   
   printUnaddedEntries(bonusStandardsMap); // Notifies operator via console of unadded keys and values.
 
   if (resetLiveDocToTemplate) {
-    resetLiveDoc(); // Reset live doc to match template
+    resetLiveDoc(docLines); // Reset live doc to match template
   }
 
   return;
@@ -89,19 +96,30 @@ function shortenToTimeString(longTimeMatch) {
   return monthMap.get(longTimeMatch[1]) + "/" + longTimeMatch[2];
 }
 
-function readBonusStandards(bonusStandardsMap, line) {
-  let matches = /(-?[0-9]+) (Bonus Standards? |BS )?to (.*) for (.*)/.exec(line); // Finds all text matching the RegEx and organizes into groups
-  
+function readBonusStandards(bonusStandardsMap, docLines, lineNum) {
+  let line = docLines[lineNum].getText();
+  let matches = /(-?[0-9]+) (Bonus Standards? |BS )?to (.*?) for (.*)/.exec(line); // Finds all text matching the RegEx and organizes into groups
+
+  // If the line doesnt fit the format (usually something like "Passes, automatic, etc, skip reading it")
+  if (!matches) {
+    return;
+  }
+
   let amount = parseInt(matches[1]);
-  let members = matches[3].replaceAll(/ ?(, and|and|,) ?/g, ",") // Replaces ", and " and "and " with ","
+  let members = matches[3].replaceAll(/ ?(, and|and |,) ?/g, ",") // Replaces ", and " and "and " with ","
                       .replaceAll(/(Brothers? |Associates? )/g, "") //Removes all Brother and Associate titles, as well as whitespace
                       .split(","); // Splits the string into a list at every ","
-  let reason = matches[4].replaceAll(/- .*/g,""); // Removes everything after a hyphen
+  let reason = matches[4];
 
-  /*console.log(amount);
-  console.log(members);
-  console.log(reason);
-  */
+  // Detect if the bonus standard(s) are tabled or not passed. If so, set value to 0
+  console.log(members + ": " + reason.toLowerCase());
+  if (reason.toLowerCase().includes("not pass") ||
+      reason.toLowerCase().includes("tabled") || 
+      docLines[lineNum].getIndentStart() < docLines[lineNum+1].getIndentStart() && ( // If next line is a descriptor for current line
+        docLines[lineNum+1].getText().toLowerCase().includes("not pass") ||
+        docLines[lineNum+1].getText().toLowerCase().includes("tabled"))) {
+    amount = 0;
+  }
 
   for (let m = 0; m < members.length; m++) {
     if (!bonusStandardsMap.has(members[m])) {
@@ -229,54 +247,39 @@ function printUnaddedEntries(bonusStandardsMap, copySheetID) {
     console.log(key + ": " + value[0] + " Bonus Standards");
   })
   
-  // Highlight all missing entries on the copy spreadsheet
+  // TODO: Highlight all missing entries on the copy spreadsheet
   
 }
 
-//Source: https://stackoverflow.com/questions/71609753/copying-a-section-from-google-docs-to-another-doc-using-apps-script
-function resetLiveDoc() {
-  //TODO: copy over image that's supposed to be there, also fix list numbers not copying over
-  const template = DocumentApp.openById(templateID).getBody();
-  const liveDoc = DocumentApp.openById(docID).getBody();
-  
-  // Make live doc blank
-  liveDoc.setText("");
+function resetLiveDoc(docLines) {
+  // Reset date
+  let fontSize = docLines[4].editAsText().getFontSize();
+  docLines[4].setText("LongMonth Dayth, Year");
+  docLines[4].editAsText().setFontSize(fontSize);
 
-  //Copy headers
-  DocumentApp.openById(docID).getHeader().setText(""); // Clear header before copying
-  let osuLink = DocumentApp.openById(templateID).getHeader().getChild(0).copy(); // Get operating standards update link (this page) from the template
-  DocumentApp.openById(docID).getHeader().insertParagraph(0,osuLink); // Set operating standards update link to be the header of live doc
+  // Reset time start
+  fontSize = docLines[5].editAsText().getFontSize();
+  docLines[5].setText("Call to Order: HH:MM");
+  docLines[5].editAsText().setFontSize(fontSize);
 
-  let index = 0;
-  let el, type; // Element & type
-  for (let i = 0; i < template.getNumChildren(); i++){
-    el = template.getChild(i);
-    type = el.getType();
-    switch (type){
-      case DocumentApp.ElementType.PARAGRAPH:
-        liveDoc.insertParagraph(index,el.copy());
-        index++;
-        break;
-      case DocumentApp.ElementType.LIST_ITEM:
-        liveDoc.insertListItem(index,el.copy());
-        index++;
-        break;
-      case DocumentApp.ElementType.TABLE:
-        liveDoc.insertTable(index,el.copy());
-        index++;
-        break;
+  // Reset body
+  let sectionCount = 0;
+  //i = 6 to keep the title, date, and call to order lines
+  for (let i = 6; i < docLines.length-1; i++) {
+    if (docLines[i].getIndentStart() > 36) {
+      if (sectionCount < 1) {
+        docLines[i].clear(); // Keep the paragraph indent of the current section of text to preserve formatting
+      } else {
+        docLines[i].removeFromParent(); // Remove all lines after the first indent
+      }
+      sectionCount += 1; 
+    } else {
+      sectionCount = 0; // Reset section count when a header is read
     }
   }
-}
 
-/*function onInstall(e) {
-  onOpen(e);
+  // Reset time end
+  fontSize = docLines[docLines.length-1].editAsText().getFontSize();
+  docLines[docLines.length-1].setText("Adjournment: HH:MM");
+  docLines[docLines.length-1].editAsText().setFontSize(fontSize);
 }
-
-function onOpen(e) {
-  var ui = DocumentApp.getUi();
-  ui.createAddonMenu()
-    .addItem('Run main', 'main')
-    .addToUi();
-}
-*/
