@@ -3,7 +3,7 @@
 /*
 Reset Live Doc to a template version after running?
 */
-var resetLiveDocToTemplate = false;
+var resetLiveDocToTemplate = true;
 
 /*
 ID of Google Document you are writing to (just double click the red text and ctrl+v the id):
@@ -24,13 +24,33 @@ var folderID = "";
 /*
 Create copies of the current doc and spreadsheet information?
 */
-var createCopies = false;
+var createCopies = true;
 
 // Do not touch beyond this line
 
 function main() {
+  //Ensure you have access to the given document
+  try {
+    let tempApp = DocumentApp.openById(docID);
+    let tempName = tempApp.getName();
+    tempApp.setName(tempName);
+  } catch (error) {
+    console.error("Unable to access/edit the document with the given document id of \""+docID+"\".\nReview your permissions and try again."+error);
+    return;
+  }
+
+  //Ensure you have access to the given spreadsheet
+  try {
+    let tempApp = SpreadsheetApp.openById(sheetID);
+    let tempName = tempApp.getName();
+    tempApp.setName(tempName);
+  } catch (error) {
+    console.error("Unable to access/edit the spreadsheet with the given spreadsheet id of \""+sheetID+"\".\nReview your permissions and try again.");
+    return;
+  }
+
   var docLines = DocumentApp.openById(docID).getBody().getParagraphs();
-  
+
   var shortTimeString = "";
   var yearString = "";
   var bonusStandardsMap = new Map(); // Key:Value format: "Name":[amount,[reasons]]
@@ -40,6 +60,7 @@ function main() {
     let line = docLines[i].getText();
 
     let longTimeMatch = /(.*) ([0-3]?[0-9])...?, ([0-9]{4})/.exec(line); // Finds if a line is formatted in the form of "January 1st, 2012"
+
     if (longTimeMatch && !shortTimeString) { // If the line is matched and the shortTimeString has not already been set
       shortTimeString = shortenToTimeString(longTimeMatch);
       yearString = longTimeMatch[3];
@@ -60,16 +81,38 @@ function main() {
     { readBonusStandards(bonusStandardsMap, docLines, i); }
   } // End scan of doc
 
-  console.log("Updating Operating Standards information for " + shortTimeString + "...");
-
-  if (createCopies) {
-    createCopyDoc(shortTimeString + "/" + yearString);
-    createCopySheet(bonusStandardsMap, shortTimeString + "/" + yearString); // Creates a new sheet for this minutes with all of the info on it
+  // Throw error if the date isn't formatted properly
+  if (shortTimeString == "" || shortTimeString.includes("undefined")) {
+    console.error("The current date could not be found. Ensure the date near the beginning of the document is formatted in a similar fashion to the following example: January 1st, 2024");
+    return;
   }
 
-  updateLiveSheet(bonusStandardsMap, shortTimeString); // Updates the live sheet for this minutes and removes entries from bonusStandardsMap
-  
-  printUnaddedEntries(bonusStandardsMap); // Notifies operator via console of unadded keys and values.
+  console.log("Updating Operating Standards information for " + shortTimeString + "...");
+
+  // If bonus standards weren't affected, 
+  let empty = (bonusStandardsMap.size == 0);
+  if (empty) {
+    console.log("Bonus Standards were not affected. Will not create a spreadsheet copy or update the live sheet.");
+  }
+
+  if (createCopies) {
+    // Only createCopyDoc needs folder access error handles since they dont stop execution
+    createCopyDoc(shortTimeString + "/" + yearString);
+    
+    if (!empty) {
+      createCopySheet(bonusStandardsMap, shortTimeString + "/" + yearString); // Creates a new sheet for this minutes with all of the info on it
+    }
+  }
+
+  if (!empty) {
+    if (!updateLiveSheet(bonusStandardsMap, shortTimeString)) { // Updates the live sheet for this minutes and removes entries from bonusStandardsMap. If there's an error, end execution.
+      return;
+    }
+  }
+
+  if (bonusStandardsMap.size > 0) {
+    printUnaddedEntries(bonusStandardsMap); // Notifies operator via console of unadded keys and values.
+  }
 
   if (resetLiveDocToTemplate) {
     resetLiveDoc(docLines); // Reset live doc to match template
@@ -112,7 +155,6 @@ function readBonusStandards(bonusStandardsMap, docLines, lineNum) {
   let reason = matches[4];
 
   // Detect if the bonus standard(s) are tabled or not passed. If so, set value to 0
-  console.log(members + ": " + reason.toLowerCase());
   if (reason.toLowerCase().includes("not pass") ||
       reason.toLowerCase().includes("tabled") || 
       docLines[lineNum].getIndentStart() < docLines[lineNum+1].getIndentStart() && ( // If next line is a descriptor for current line
@@ -142,15 +184,27 @@ function createCopyDoc(shortTimeString) {
 
   // See if folder is given/available
   var folder;
+  let warned = false;
   try {
     folder = DriveApp.getFolderById(folderID);
-  } catch(e) {}
+  } catch(e) {
+    if (folderID) { // If there was an ID given and was unable to be found
+      console.warn("Unable to find given folder with folder id \""+folderID+"\".\nThe copy document and spreadsheet were created in your main google drive folder.")
+      warned = true;
+    }
+  }
 
   if (folder) {
     // Move Copy Doc to operating standards folder
     let file = DriveApp.getFileById(copyDocID);
     
-    file.moveTo(folder);
+    try {
+      file.moveTo(folder);
+    } catch(e) {
+      if (!warned) { // If the folder was found but unabled to be accessed, warn the user and keep it in their main google drive folder
+       console.warn("Unable to access given folder with folder id \""+folderID+"\". Review your permissions.\nThe copy document and spreadsheet were created in your main google drive folder.")
+      }
+    }
   }
 
   DocumentApp.openById(copyDocID).getHeader().setText(""); // Clear header after copying
@@ -196,13 +250,16 @@ function createCopySheet(bonusStandardsMap, shortTimeString) {
   var folder;
   try {
     folder = DriveApp.getFolderById(folderID);
-  } catch(e) {}
+  } catch(e) {
+  }
 
   if (folder) {
     // Move Copy Sheet to operating standards folder
     let file = DriveApp.getFileById(spreadsheet.getId());
     
-    file.moveTo(folder);
+    try { // If the folder is able to be found but unable to be modified, dont try and move it.
+      file.moveTo(folder);
+    } catch(e) {}
   }
 }
 
@@ -211,6 +268,12 @@ function updateLiveSheet(bonusStandardsMap, shortTimeString) {
   let sheetActive = spreadsheet.getSheetByName("Other");
 
   let dateIndex = 1 + sheetActive.getRange(2,1,1,26).getValues()[0].indexOf("Exec " + shortTimeString); // Index of column that matches date on doc
+  
+  if (dateIndex == 0) { // If date index was not found, ask the user what to do
+    console.error("The date given on the document ("+shortTimeString+") was not found on the spreadsheet. Update the spreadsheet or the document to have the correct date and try again. Keep in mind that, if enabled, the copy document and sheet were still created.");
+    return false;
+  }
+
   let nameIndex = 1; // Index of column containing the names of the members
   
   let namesArray = sheetActive.getRange(2, nameIndex, 99, 1).getValues();
@@ -238,6 +301,8 @@ function updateLiveSheet(bonusStandardsMap, shortTimeString) {
     // Remove entry from bonusStandardsMap
     bonusStandardsMap.delete(nameKey);
   }
+
+  return true;
 }
 
 function printUnaddedEntries(bonusStandardsMap, copySheetID) {
@@ -246,9 +311,6 @@ function printUnaddedEntries(bonusStandardsMap, copySheetID) {
   bonusStandardsMap.forEach((value, key) => {
     console.log(key + ": " + value[0] + " Bonus Standards");
   })
-  
-  // TODO: Highlight all missing entries on the copy spreadsheet
-  
 }
 
 function resetLiveDoc(docLines) {
