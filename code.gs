@@ -3,7 +3,7 @@
 /*
 Reset Live Doc to a template version after running?
 */
-var resetLiveDocToTemplate = true;
+var resetLiveDocToTemplate = false;
 
 /*
 ID of Google Document you are writing to (just double click the red text and ctrl+v the id):
@@ -68,10 +68,11 @@ function main() {
 
     // Enter fines mode (TBD)
 
-    // Enter demerits mode (TBD)
-
     if (/Bonus Standards.*/.exec(line) && mode == '') // Enter bonus standards mode
     { mode = 'B'; continue; }
+
+    if (/Demerits.*/.exec(line) && mode == '') // Enter bonus standards mode
+    { mode = 'D'; continue; }
 
     if (docLines[i].getIndentStart() == 36) // Reset mode // This (36) MIGHT be changed in the future, would be nice if it was made dynamic
     { mode = ''; }
@@ -79,6 +80,9 @@ function main() {
 
     if (mode == 'B')
     { readBonusStandards(bonusStandardsMap, docLines, i); }
+
+    if (mode == 'D')
+    { readDemerits(demeritsMap, docLines, i); }
   } // End scan of doc
 
   // Throw error if the date isn't formatted properly
@@ -168,6 +172,8 @@ function readBonusStandards(bonusStandardsMap, docLines, lineNum) {
       bonusStandardsMap.set(members[m],[0,[]]); // If map entry is empty, set it to default values
     }
 
+    console.log(members[m] + ": " + amount)
+
     oldAmount = bonusStandardsMap.get(members[m])[0];
     oldReasons = bonusStandardsMap.get(members[m])[1];
 
@@ -176,6 +182,11 @@ function readBonusStandards(bonusStandardsMap, docLines, lineNum) {
 
     bonusStandardsMap.set(members[m],[oldAmount,oldReasons]);
   }
+}
+
+// Change for demerits
+function readDemerits(demeritsMap, docLines, lineNum) {
+  
 }
 
 function createCopyDoc(shortTimeString) {
@@ -210,6 +221,7 @@ function createCopyDoc(shortTimeString) {
   DocumentApp.openById(copyDocID).getHeader().setText(""); // Clear header after copying
 }
 
+// Change for demerits
 function createCopySheet(bonusStandardsMap, shortTimeString) {
   let spreadsheet = SpreadsheetApp.create('Copy Sheet ' + shortTimeString);
   let sheetActive = spreadsheet.getActiveSheet();
@@ -263,6 +275,7 @@ function createCopySheet(bonusStandardsMap, shortTimeString) {
   }
 }
 
+// Change for demerits
 function updateLiveSheet(bonusStandardsMap, shortTimeString) {
   let spreadsheet = SpreadsheetApp.openById(sheetID);
   let sheetActive = spreadsheet.getSheetByName("Other");
@@ -305,6 +318,7 @@ function updateLiveSheet(bonusStandardsMap, shortTimeString) {
   return true;
 }
 
+// Change for demerits
 function printUnaddedEntries(bonusStandardsMap, copySheetID) {
   console.log("These names were unable to be found from the rows on the Live Operating Standards Spreadsheet, please fill in their corresponding entries manually:")
   // Prints out all of the names and corresponding bonus standards
