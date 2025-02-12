@@ -24,7 +24,7 @@ var folderID = "";
 /*
 Create copies of the current doc and spreadsheet information?
 */
-var createCopies = true;
+var createCopies = false;
 
 // Do not touch beyond this line
 
@@ -54,7 +54,8 @@ function main() {
   var shortTimeString = "";
   var yearString = "";
   var bonusStandardsMap = new Map(); // Key:Value format: "Name":[amount,[reasons]]
-  var mode = '';
+  var meritsMap = new Map();
+  let mode = '';
 
   for (let i = 0; i < docLines.length; i++) { // Begin scan of doc
     let line = docLines[i].getText();
@@ -68,21 +69,18 @@ function main() {
 
     // Enter fines mode (TBD)
 
+    if (docLines[i].getIndentStart() == 36) // Reset mode // This (36) MIGHT be changed in the future, would be nice if it was made dynamic
+    { mode = ''; }
+
     if (/Bonus Standards.*/.exec(line) && mode == '') // Enter bonus standards mode
     { mode = 'B'; continue; }
 
     if (/Demerits.*/.exec(line) && mode == '') // Enter bonus standards mode
-    { mode = 'D'; continue; }
-
-    if (docLines[i].getIndentStart() == 36) // Reset mode // This (36) MIGHT be changed in the future, would be nice if it was made dynamic
-    { mode = ''; }
+    { mode = 'M'; continue; }
     
-
-    if (mode == 'B')
-    { readBonusStandards(bonusStandardsMap, docLines, i); }
-
-    if (mode == 'D')
-    { readDemerits(demeritsMap, docLines, i); }
+    if (mode == 'B') {
+      bonusStandardsMap = readLines(mode, bonusStandardsMap, docLines, i);
+    }
   } // End scan of doc
 
   // Throw error if the date isn't formatted properly
@@ -143,13 +141,19 @@ function shortenToTimeString(longTimeMatch) {
   return monthMap.get(longTimeMatch[1]) + "/" + longTimeMatch[2];
 }
 
-function readBonusStandards(bonusStandardsMap, docLines, lineNum) {
+function readLines(mode, modeMap, docLines, lineNum) {
   let line = docLines[lineNum].getText();
-  let matches = /(-?[0-9]+) (Bonus Standards? |BS )?to (.*?) for (.*)/.exec(line); // Finds all text matching the RegEx and organizes into groups
+  let matches = false;
+
+  if (mode == 'B') {
+    matches = /(-?[0-9]+) (Bonus Standards? |BS )?to (.*?) for (.*)/.exec(line); // Finds all text matching the RegEx and organizes into groups
+  } else if (mode == 'D') {
+    matches = /(-?[0-9]+) (Merits? |Demerits? )?to (.*?) for (.*)/.exec(line); // Finds all text matching the RegEx and organizes into groups
+  }
 
   // If the line doesnt fit the format (usually something like "Passes, automatic, etc, skip reading it")
   if (!matches) {
-    return;
+    return modeMap;
   }
 
   let amount = parseInt(matches[1]);
@@ -168,25 +172,22 @@ function readBonusStandards(bonusStandardsMap, docLines, lineNum) {
   }
 
   for (let m = 0; m < members.length; m++) {
-    if (!bonusStandardsMap.has(members[m])) {
-      bonusStandardsMap.set(members[m],[0,[]]); // If map entry is empty, set it to default values
+    if (!modeMap.has(members[m])) {
+      modeMap.set(members[m],[0,[]]); // If map entry is empty, set it to default values
     }
 
-    console.log(members[m] + ": " + amount)
+    //console.log(members[m] + ": " + amount)
 
-    oldAmount = bonusStandardsMap.get(members[m])[0];
-    oldReasons = bonusStandardsMap.get(members[m])[1];
+    oldAmount = modeMap.get(members[m])[0];
+    oldReasons = modeMap.get(members[m])[1];
 
     oldAmount += amount;
     oldReasons.push(reason);
 
-    bonusStandardsMap.set(members[m],[oldAmount,oldReasons]);
+    modeMap.set(members[m],[oldAmount,oldReasons]);
   }
-}
 
-// Change for demerits
-function readDemerits(demeritsMap, docLines, lineNum) {
-  
+  return modeMap;
 }
 
 function createCopyDoc(shortTimeString) {
