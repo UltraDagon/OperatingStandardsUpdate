@@ -80,6 +80,8 @@ function main() {
     
     if (mode == 'B') {
       bonusStandardsMap = readLines(mode, bonusStandardsMap, docLines, i);
+    } else if (mode == 'M') {
+      meritsMapMap = readLines(mode, meritsMap, docLines, i);
     }
   } // End scan of doc
 
@@ -92,28 +94,40 @@ function main() {
   console.log("Updating Operating Standards information for " + shortTimeString + "...");
 
   // If bonus standards weren't affected, 
-  let empty = (bonusStandardsMap.size == 0);
-  if (empty) {
+  let bs_empty = (bonusStandardsMap.size == 0);
+  let m_empty = (meritsMap.size == 0);
+
+  if (bs_empty) {
     console.log("Bonus Standards were not affected. Will not create a spreadsheet copy or update the live sheet.");
+  }
+  if (m_empty) {
+    console.log("Merits were not affected. Will not update the live sheet.");
   }
 
   if (createCopies) {
     // Only createCopyDoc needs folder access error handles since they dont stop execution
     createCopyDoc(shortTimeString + "/" + yearString);
     
-    if (!empty) {
+    if (!bs_empty) {
       createCopySheet(bonusStandardsMap, shortTimeString + "/" + yearString); // Creates a new sheet for this minutes with all of the info on it
     }
   }
 
-  if (!empty) {
-    if (!updateLiveSheet(bonusStandardsMap, shortTimeString)) { // Updates the live sheet for this minutes and removes entries from bonusStandardsMap. If there's an error, end execution.
+  if (!bs_empty) {
+    bonusStandardsMap = updateLiveSheet(bonusStandardsMap, shortTimeString, "Other");
+    if (!bonusStandardsMap) { // Updates the live sheet for this minutes and removes entries from bonusStandardsMap. If there's an error, end execution.
+      return;
+    }
+  }
+  if (!m_empty) {
+    meritsMap = updateLiveSheet(meritsMap, shortTimeString, "Demerits");
+    if (!meritsMap) { // Updates the live sheet for this minutes and removes entries from bonusStandardsMap. If there's an error, end execution.
       return;
     }
   }
 
-  if (bonusStandardsMap.size > 0) {
-    printUnaddedEntries(bonusStandardsMap); // Notifies operator via console of unadded keys and values.
+  if (bonusStandardsMap.size > 0 || meritsMap.size > 0) {
+    printUnaddedEntries(bonusStandardsMap, meritsMap); // Notifies operator via console of unadded keys and values.
   }
 
   if (resetLiveDocToTemplate) {
@@ -147,7 +161,7 @@ function readLines(mode, modeMap, docLines, lineNum) {
 
   if (mode == 'B') {
     matches = /(-?[0-9]+) (Bonus Standards? |BS )?to (.*?) for (.*)/.exec(line); // Finds all text matching the RegEx and organizes into groups
-  } else if (mode == 'D') {
+  } else if (mode == 'M') {
     matches = /(-?[0-9]+) (Merits? |Demerits? )?to (.*?) for (.*)/.exec(line); // Finds all text matching the RegEx and organizes into groups
   }
 
@@ -156,6 +170,8 @@ function readLines(mode, modeMap, docLines, lineNum) {
     return modeMap;
   }
 
+  //If demerits are ever changed to be negative, change /Merits?/ to /Demerits?/
+  let sign = (Number(!/Merits?/.exec(matches[2]))*2 - 1); // 1 if not on merits mode or is a 'demerit', -1 if its a 'merit'
   let amount = parseInt(matches[1]);
   let members = matches[3].replaceAll(/ ?(, and|and |,) ?/g, ",") // Replaces ", and " and "and " with ","
                       .replaceAll(/(Brothers? |Associates? )/g, "") //Removes all Brother and Associate titles, as well as whitespace
@@ -176,12 +192,10 @@ function readLines(mode, modeMap, docLines, lineNum) {
       modeMap.set(members[m],[0,[]]); // If map entry is empty, set it to default values
     }
 
-    //console.log(members[m] + ": " + amount)
-
     oldAmount = modeMap.get(members[m])[0];
     oldReasons = modeMap.get(members[m])[1];
 
-    oldAmount += amount;
+    oldAmount += amount*sign;
     oldReasons.push(reason);
 
     modeMap.set(members[m],[oldAmount,oldReasons]);
@@ -222,7 +236,7 @@ function createCopyDoc(shortTimeString) {
   DocumentApp.openById(copyDocID).getHeader().setText(""); // Clear header after copying
 }
 
-// Change for demerits
+// Change for demerits (NOT CHANGED YET)
 function createCopySheet(bonusStandardsMap, shortTimeString) {
   let spreadsheet = SpreadsheetApp.create('Copy Sheet ' + shortTimeString);
   let sheetActive = spreadsheet.getActiveSheet();
@@ -276,10 +290,9 @@ function createCopySheet(bonusStandardsMap, shortTimeString) {
   }
 }
 
-// Change for demerits
-function updateLiveSheet(bonusStandardsMap, shortTimeString) {
+function updateLiveSheet(modeMap, shortTimeString, sheetName) {
   let spreadsheet = SpreadsheetApp.openById(sheetID);
-  let sheetActive = spreadsheet.getSheetByName("Other");
+  let sheetActive = spreadsheet.getSheetByName(sheetName);
 
   let dateIndex = 1 + sheetActive.getRange(2,1,1,26).getValues()[0].indexOf("Exec " + shortTimeString); // Index of column that matches date on doc
   
@@ -294,37 +307,40 @@ function updateLiveSheet(bonusStandardsMap, shortTimeString) {
 
   // Update sheet
   for (let rowIndex = 1; namesArray[rowIndex][0].length !== 0; rowIndex++) { // Loops until there is no name in the name column
-    // Match name to bonusStandardsMap key
+    // Match name to modeMap key
     let currentNameSplit = namesArray[rowIndex][0].split(' ');
     let lastName = currentNameSplit[1];
     let firstInitial = currentNameSplit[0].charAt(0) + ". " + currentNameSplit[1];
     let nameKey = undefined;
 
-    // See if last name isn't an entry in bonusStandardsMap
-    if (typeof(bonusStandardsMap.get(lastName)) !== "undefined") { // If row name's last name matches an entry in bonusStandardsMap
+    // See if last name isn't an entry in modeMap
+    if (typeof(modeMap.get(lastName)) !== "undefined") { // If row name's last name matches an entry in modeMap
       nameKey = lastName;
-    } else if (typeof(bonusStandardsMap.get(firstInitial)) !== "undefined") { // If row name's first initial + last name matches an entry in bonusStandardsMap
+    } else if (typeof(modeMap.get(firstInitial)) !== "undefined") { // If row name's first initial + last name matches an entry in modeMap
       nameKey = firstInitial;
     } else {
-      sheetActive.getRange(rowIndex+2, dateIndex).setValue('0'); // Reset to zero if their name isn't on the bonusStandardsMap
+      sheetActive.getRange(rowIndex+2, dateIndex).setValue('0'); // Reset to zero if their name isn't on the modeMap
       continue;
     }
 
-    // Set name's bonus standard amount to value in bonusStandardsMap
-    sheetActive.getRange(rowIndex+2, dateIndex).setValue(bonusStandardsMap.get(nameKey)[0]);
-    // Remove entry from bonusStandardsMap
-    bonusStandardsMap.delete(nameKey);
+    // Set name's unit amount to value in modeMap
+    sheetActive.getRange(rowIndex+2, dateIndex).setValue(modeMap.get(nameKey)[0]);
+    // Remove entry from modeMap
+    modeMap.delete(nameKey);
   }
 
-  return true;
+  return modeMap;
 }
 
 // Change for demerits
-function printUnaddedEntries(bonusStandardsMap, copySheetID) {
+function printUnaddedEntries(bonusStandardsMap, meritsMap) {
   console.log("These names were unable to be found from the rows on the Live Operating Standards Spreadsheet, please fill in their corresponding entries manually:")
   // Prints out all of the names and corresponding bonus standards
   bonusStandardsMap.forEach((value, key) => {
     console.log(key + ": " + value[0] + " Bonus Standards");
+  })
+  meritsMap.forEach((value, key) => {
+    console.log(key + ": " + value[0] + " Demerits");
   })
 }
 
